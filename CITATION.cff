@@ -5,10 +5,10 @@ type: software
 authors:
   - family-names: Bindschaedler
     given-names: Quentin
-    affiliation: ChemLearn
+    affiliation: ChemTrain
 abstract: "A Quizlet-style trainer for protecting groups and their deprotection conditions in organic synthesis, in one HTML file."
-url: "https://chemlearn.github.io/pg-learn/pg_learn.html"
-repository-code: "https://github.com/ChemLearn/pg-learn"
+url: "https://chemtrain.github.io/pg-learn/pg_learn.html"
+repository-code: "https://github.com/ChemTrain/pg-learn"
 license:
   - MIT
   - CC-BY-4.0

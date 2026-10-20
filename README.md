@@ -2,7 +2,7 @@
 
 PG Learn is a Quizlet-style trainer for protecting groups in organic synthesis: which conditions remove which group, and how to plan a sequence of deprotections. Everything is in one HTML file.
 
-**Play it here:** https://chemlearn.github.io/pg-learn/pg_learn.html
+**Play it here:** https://chemtrain.github.io/pg-learn/pg_learn.html
 
 You can also download `pg_learn.html` and open it in any browser.
 
@@ -24,7 +24,7 @@ The chart, descriptions and notes are written for this quiz from standard organi
 
 If you use PG Learn in a course, a worksheet or a paper, please cite it:
 
-> Bindschaedler, Q. *PG Learn* (2026). ChemLearn. https://github.com/ChemLearn/pg-learn
+> Bindschaedler, Q. *PG Learn* (2026). ChemTrain. https://github.com/ChemTrain/pg-learn
 
 GitHub's **Cite this repository** button (from `CITATION.cff`) gives the same reference in APA and BibTeX.
 
