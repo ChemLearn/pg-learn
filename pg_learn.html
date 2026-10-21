@@ -49,7 +49,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); }
 
 .wrap {
-  max-width: 1160px; margin: 0 auto; display: grid; gap: 16px;
+  max-width: 1160px; margin: 0 auto; display: grid; gap: 18px;
   padding-block: 20px 56px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -77,6 +77,7 @@ h1 span { font-weight: 500; color: var(--muted); }
 @media (max-width: 520px) { .tabs button { padding: 7px 10px; font-size: 13.5px; } }
 
 /* key under the options: the marks used in the chart and the feedback */
+.indicator { height: 6px; border-radius: 3px; background: linear-gradient(90deg, hsl(0 72% 52%), hsl(56 80% 50%), hsl(112 55% 44%), hsl(168 60% 40%), hsl(224 62% 54%), hsl(280 52% 54%)); }
 .band { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
 .band span { display: inline-flex; align-items: center; gap: 8px; }
 
@@ -143,7 +144,7 @@ h1 span { font-weight: 500; color: var(--muted); }
 .qhead { display: grid; gap: 10px; min-width: 0; }
 .qtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
-.term { margin: 0; font: 700 clamp(24px, 4.2vw, 34px)/1.12 var(--f-display); letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
+.term { margin: 0; font: 700 clamp(26px, 4.6vw, 36px)/1.12 var(--f-display); letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
 .term small { font: 500 .55em var(--f-body); color: var(--muted); letter-spacing: 0; }
 .ask { margin: 0; font-size: 15px; color: var(--muted); }
 .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
@@ -203,7 +204,7 @@ h1 span { font-weight: 500; color: var(--muted); }
 .options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .options.long { grid-template-columns: 1fr; }
 @media (max-width: 560px) { .options { grid-template-columns: 1fr; } }
-.opt { display: flex; align-items: center; gap: 12px; min-width: 0; text-align: left; padding: 13px 15px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; transition: border-color .15s, background .15s; }
+.opt { display: flex; align-items: center; gap: 12px; min-width: 0; text-align: left; padding: 14px 16px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; transition: border-color .15s, background .15s; }
 .opt:hover:not([disabled]) { border-color: var(--accent); }
 .opt[disabled] { cursor: default; }
 .opt .key { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; font: 600 12px var(--f-mono); color: var(--muted); }
@@ -378,6 +379,7 @@ table.chart td button[aria-pressed="true"] { outline: 2px solid var(--accent); o
       <div data-for="learn removed plan flashcards cards"><button class="btn ghost small" id="reset-progress" type="button">Reset progress for this set</button></div>
     </div>
   </section>
+  <div class="indicator" aria-hidden="true"></div>
   <div class="band" aria-label="Key">
     <span><i class="mk X"></i>Removed</span>
     <span><i class="mk d"></i>Stays</span>
@@ -788,7 +790,7 @@ function doneHTML() {
   return `<div class="panel">
       <div class="qhead"><p class="eyebrow">Set complete</p>
       <h2 class="term">All ${active.cards.length} groups mastered</h2>
-      <p class="ask">It took ${roundNo} round${roundNo === 1 ? '' : 's'}. Study again to reset this set, or pick another set.</p></div>
+      <p class="ask">It took ${roundNo} round${roundNo === 1 ? '' : 's'}. Study again to reset this set and start over, or pick another set.</p></div>
       <div class="row end"><button type="button" class="btn" id="study-again">Study again</button></div>
     </div>`;
 }
@@ -820,13 +822,21 @@ function deal(items, rec) {
 const streakPill = st => st.streak >= 2 ? `<span class="pill" data-l="3">${st.streak} in a row</span>` : '';
 const hardPill = q => q.hard ? '<span class="pill hard" title="A selectivity question: Hard only">Selectivity</span>' : '';
 function deckSummaryHTML(st, title, rows, again) {
-  const ok = st.results.filter(r => r.ok).length;
+  const ok = st.results.filter(r => r.ok).length, missed = st.results.length - ok, retry = again.replace('again', 'retry');
   return `<div class="panel">
-      <div class="qhead"><p class="eyebrow">${esc(active.name)} · ${title} round done</p>
+      <div class="qhead"><p class="eyebrow">${esc(active.name)} · ${title}${st.retry ? ' missed questions' : ''} round done</p>
       <h2 class="term">${ok} of ${st.results.length} right</h2></div>
       <ul class="summary">${rows}</ul>
-      <div class="row end"><button type="button" class="btn" id="${again}">Next round</button></div>
+      <div class="row end">${missed ? `<button type="button" class="btn ghost" id="${again}">Next round</button><button type="button" class="btn" id="${retry}">Retry the ${missed} you missed</button>`
+        : `<button type="button" class="btn" id="${again}">Next round</button>`}</div>
     </div>`;
+}
+// a round of just the questions missed in the round before
+function retryDeck(st, build, deal) {
+  const missed = st.results.filter(r => !r.ok).map(r => r.q);
+  if (!missed.length) return deal();
+  st.deck = shuffle(missed); st.i = 0; st.results = []; st.retry = true;
+  build();
 }
 const emptyHTML = what => `<div class="panel"><p class="help">This set has no ${what} questions on ${hard() ? 'Hard' : 'Easy'}.${hard() ? '' : ' Try Hard.'}</p></div>`;
 
@@ -834,7 +844,7 @@ const emptyHTML = what => `<div class="panel"><p class="help">This set has no ${
 const rmPool = s => s.removed.filter(q => hard() || !q.hard);
 const rm = { deck: [], i: 0, cur: null, phase: 'question', results: [], streak: 0 };
 function rmDeal() {
-  rm.deck = deal(rmPool(active), record('removed', active)); rm.i = 0; rm.results = [];
+  rm.deck = deal(rmPool(active), record('removed', active)); rm.i = 0; rm.results = []; rm.retry = false;
   if (rm.deck.length) rmBuild(); else { rm.phase = 'empty'; renderRemoved(); }
 }
 function rmBuild() { rm.cur = { q: rm.deck[rm.i], picked: new Set(), checked: false }; rm.phase = 'question'; renderRemoved(); }
@@ -861,7 +871,7 @@ function rmNext() {
   rm.i++;
   if (rm.i < rm.deck.length) return rmBuild();
   rm.phase = 'summary'; renderRemoved();
-  const b = $('#rm-again'); if (b) b.focus({ preventScroll: true });
+  const b = $('#rm-retry') || $('#rm-again'); if (b) b.focus({ preventScroll: true });
 }
 function renderRemoved() {
   const el = $('#removed-box');
@@ -878,7 +888,7 @@ function renderRemoved() {
   const ask = done ? 'Orange: the groups these conditions remove.'
     : 'Which protecting groups do these conditions remove? Pick every one, on the structure or below, then check.';
   el.innerHTML = `<div class="panel">
-      <div class="qhead"><div class="qtop"><p class="eyebrow">Removed? · ${rm.i + 1} of ${rm.deck.length}</p><div class="tags">${hardPill(q)}${streakPill(rm)}</div></div>
+      <div class="qhead"><div class="qtop"><p class="eyebrow">Removed?${rm.retry ? ' · missed' : ''} · ${rm.i + 1} of ${rm.deck.length}</p><div class="tags">${hardPill(q)}${streakPill(rm)}</div></div>
         <figure class="figure"><div class="scheme${done ? '' : ' pick'}" role="img" aria-label="Protected ${esc(q.scaf)} and the conditions">
           ${molSVG(q.mol, 1.5, 250, 460, 'id="rm-mol"')}
           <span class="arrow"><span class="cond">${esc(condLabel(q.cond))}</span><span class="line"></span></span>${right}</div></figure>
@@ -920,6 +930,7 @@ $('#removed-box').addEventListener('click', e => {
   else if (b.id === 'rm-show') rmCheck(true);
   else if (b.id === 'rm-next') rmNext();
   else if (b.id === 'rm-again') rmDeal();
+  else if (b.id === 'rm-retry') retryDeck(rm, rmBuild, rmDeal);
 });
 
 /* ---------- Plan ---------- */
@@ -948,7 +959,7 @@ function evaluate(q, assign) {
   return { ok, rows };
 }
 function plDeal() {
-  pl.deck = deal(plPool(active), record('plan', active)); pl.i = 0; pl.results = [];
+  pl.deck = deal(plPool(active), record('plan', active)); pl.i = 0; pl.results = []; pl.retry = false;
   if (pl.deck.length) plBuild(); else { pl.phase = 'empty'; renderPlan(); }
 }
 function plMode(q) {
@@ -980,7 +991,7 @@ function plNext() {
   pl.i++;
   if (pl.i < pl.deck.length) return plBuild();
   pl.phase = 'summary'; renderPlan();
-  const b = $('#pl-again'); if (b) b.focus({ preventScroll: true });
+  const b = $('#pl-retry') || $('#pl-again'); if (b) b.focus({ preventScroll: true });
 }
 const planList = (q, assign) => `<span class="plan-opt">${assign.map((g, k) => `<span><b>${LETTERS[k]}</b>${esc(G[g].name)}</span>`).join('')}</span>`;
 function renderPlan() {
@@ -1016,7 +1027,7 @@ function renderPlan() {
     ? 'Which plan works? Each step must free exactly the site it names and leave the other groups on.'
     : 'Pick a protecting group for each lettered site so that each step frees exactly the site it names. Any plan that works counts.';
   el.innerHTML = `<div class="panel">
-      <div class="qhead"><div class="qtop"><p class="eyebrow">Plan · ${pl.i + 1} of ${pl.deck.length}</p><div class="tags">${hardPill(q)}${streakPill(pl)}</div></div>
+      <div class="qhead"><div class="qtop"><p class="eyebrow">Plan${pl.retry ? ' · missed' : ''} · ${pl.i + 1} of ${pl.deck.length}</p><div class="tags">${hardPill(q)}${streakPill(pl)}</div></div>
         <h2 class="term">${esc(q.scaf)}</h2>
         <figure class="figure center">${molSVG(q.mol, 1.5, 240, 460)}</figure>
         <ol class="steps">${steps}</ol>
@@ -1063,6 +1074,7 @@ $('#plan-box').addEventListener('click', e => {
   else if (b.id === 'pl-show') plFinish(c.q.opts[0], null, true);
   else if (b.id === 'pl-next') plNext();
   else if (b.id === 'pl-again') plDeal();
+  else if (b.id === 'pl-retry') retryDeck(pl, plBuild, plDeal);
 });
 
 /* ---------- options ---------- */
@@ -1234,10 +1246,10 @@ document.addEventListener('keydown', e => {
     else if (enter) { const b = $('#continue') || $('#next-round'); if (b) { e.preventDefault(); b.click(); } }
   } else if (view === 'removed') {
     if (rm.phase === 'question' && rm.cur && !rm.cur.checked && num >= 0) { e.preventDefault(); rmToggle(num); }
-    else if (enter) { const b = $('#rm-check') || $('#rm-next') || $('#rm-again'); if (b) { e.preventDefault(); b.click(); } }
+    else if (enter) { const b = $('#rm-check') || $('#rm-next') || $('#rm-retry') || $('#rm-again'); if (b) { e.preventDefault(); b.click(); } }
   } else if (view === 'plan') {
     if (pl.phase === 'question' && pl.cur && !pl.cur.checked && pl.cur.mode === 'mc' && num >= 0) { e.preventDefault(); plChoose(num); }
-    else if (enter) { const b = $('#pl-check:not([disabled])') || $('#pl-next') || $('#pl-again'); if (b) { e.preventDefault(); b.click(); } }
+    else if (enter) { const b = $('#pl-check:not([disabled])') || $('#pl-next') || $('#pl-retry') || $('#pl-again'); if (b) { e.preventDefault(); b.click(); } }
   } else if (view === 'flashcards') {
     if ((e.key === ' ' && tag !== 'BUTTON') || (e.key === 'Enter' && e.target.id === 'fc-card')) { e.preventDefault(); fcFlip(); }
     else if (e.key === 'ArrowRight') fcMove(1);
