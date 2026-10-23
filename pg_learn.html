@@ -551,7 +551,12 @@ function gradeRemoval(text, g, hard) {
 }
 
 /* ---------- sets and state ---------- */
+const uniq = a => [...new Set(a)];
 const SETS = DATA.sets.map(s => ({ ...s, cards: s.cards.map(id => G[id]) }));
+// the whole pool comes first and is the default
+SETS.unshift({ id: 'all', group: '', name: 'All protecting groups', desc: 'Every group and condition in PG Learn.',
+  cards: uniq(SETS.flatMap(s => s.cards)), pool: uniq(SETS.flatMap(s => s.pool)), conds: uniq(SETS.flatMap(s => s.conds)),
+  removed: SETS.flatMap(s => s.removed), plan: SETS.flatMap(s => s.plan) });
 const saved = store.get('pg.settings') || {};
 const settings = Object.assign({ level: 'easy', dir: 'removedby', qtype: 'mixed', ptype: 'mixed', shuffle: true, cols: 'set' }, saved);
 const hard = () => settings.level === 'hard';
@@ -566,7 +571,7 @@ function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active
 
 function selectSet(id) {
   active = SETS.find(s => s.id === id) || SETS[0];
-  store.set('pg.active', active.id);
+  store.set('pg.pick', active.id);
   levels = loadLevels(active.id);
   roundNo = store.get('pg.round.' + active.id) || 1;
   makeOrder(); fcInit(); startRound();
@@ -1258,7 +1263,7 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------- boot ---------- */
-selectSet(store.get('pg.active') || SETS[0].id);
+selectSet(store.get('pg.pick') || 'all');
 const start = (location.hash || '').slice(1);
 show(VIEWS.includes(start) ? start : 'learn');
 </script>
