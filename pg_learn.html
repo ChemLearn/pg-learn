@@ -142,6 +142,12 @@ h1 span { font-weight: 500; color: var(--muted); }
 /* question panel */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: clamp(18px, 3.5vw, 28px); display: grid; gap: 18px; min-width: 0; }
 .qhead { display: grid; gap: 10px; min-width: 0; }
+.star { border: 0; background: none; padding: 0 2px; font-size: 19px; line-height: 1; color: var(--muted); cursor: pointer; }
+.star:hover, .tile .tstar:hover { color: var(--warn); }
+.star[aria-pressed="true"], .tile .tstar[aria-pressed="true"] { color: var(--warn); }
+.qtop-r { display: inline-flex; align-items: center; gap: 8px; }
+.tile { position: relative; }
+.tile .tstar { position: absolute; top: 6px; right: 8px; z-index: 1; font-size: 18px; line-height: 1; color: var(--muted); }
 .qtop { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .term { margin: 0; font: 700 clamp(26px, 4.6vw, 36px)/1.12 var(--f-display); letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
@@ -367,6 +373,9 @@ table.chart td button[aria-pressed="true"] { outline: 2px solid var(--accent); o
       <div class="field" data-for="learn plan" data-needs="answers">Answers
         <div class="seg" role="group" aria-label="Answers" data-opt="answers"><button type="button" data-val="mixed" title="Multiple choice until familiar, then your own answer">Mixed</button><button type="button" data-val="mc">Choices</button><button type="button" data-val="own" id="own-btn">Typed</button></div>
       </div>
+      <div class="field" data-for="learn removed plan flashcards">Ask
+        <div class="seg" role="group" aria-label="Ask" data-opt="ask"><button type="button" data-val="all" title="Every card, mastered or not">All cards</button><button type="button" data-val="new" title="Only the cards you have not mastered yet">Not mastered</button></div>
+      </div>
       <div class="field" data-for="learn">Card order
         <div class="seg" role="group" aria-label="Card order" data-opt="shuffle"><button type="button" data-val="true">Shuffled</button><button type="button" data-val="false">Set order</button></div>
       </div>
@@ -416,6 +425,7 @@ table.chart td button[aria-pressed="true"] { outline: 2px solid var(--accent); o
         </div>
         <div class="row">
           <button class="btn ghost small" id="fc-shuffle" type="button" aria-pressed="false">Shuffle</button>
+          <button class="btn ghost small" id="fc-star" type="button" data-star="" data-label="1">☆ Add to My cards</button>
           <span class="help">Space flips the card. The arrow keys move between cards.</span>
         </div>
       </section>
@@ -557,8 +567,52 @@ const SETS = DATA.sets.map(s => ({ ...s, cards: s.cards.map(id => G[id]) }));
 SETS.unshift({ id: 'all', group: '', name: 'All protecting groups', desc: 'Every group and condition in PG Learn.',
   cards: uniq(SETS.flatMap(s => s.cards)), pool: uniq(SETS.flatMap(s => s.pool)), conds: uniq(SETS.flatMap(s => s.conds)),
   removed: SETS.flatMap(s => s.removed), plan: SETS.flatMap(s => s.plan) });
+// My cards: the starred groups, every condition, and the Removed? and Plan questions about them
+const MINE = { id: 'mine', group: '', name: 'My cards', mine: true, desc: 'The groups you starred (☆).', cards: [], pool: [], conds: SETS[0].conds, removed: [], plan: [] };
+SETS.splice(1, 0, MINE);
+/* ---------- my cards: the star on a card puts it in My cards ---------- */
+const stars = new Set(store.get('pg.stars') || []);
+const starOn = id => stars.has(id);
+const starTitle = id => starOn(id) ? 'Remove from My cards' : 'Add to My cards';
+// a span inside card tiles (they are buttons themselves), a button everywhere else
+const starHTML = (id, tag = 'button') => `<${tag} ${tag === 'button' ? 'type="button" class="star"' : 'class="tstar"'} data-star="${esc(id)}" aria-pressed="${starOn(id)}" title="${starTitle(id)}">${starOn(id) ? '★' : '☆'}</${tag}>`;
+function paintStar(el) {
+  const on = starOn(el.dataset.star);
+  el.setAttribute('aria-pressed', String(on));
+  el.title = starTitle(el.dataset.star);
+  el.textContent = el.dataset.label ? (on ? '★ In My cards' : '☆ Add to My cards') : on ? '★' : '☆';
+}
+function toggleStar(id) {
+  if (!stars.delete(id)) stars.add(id);
+  store.set('pg.stars', [...stars]);
+  for (const el of document.querySelectorAll('[data-star]')) if (el.dataset.star === id) paintStar(el);
+  refreshMine();
+}
+// in the capture phase, so a star inside a card tile does not also open the card
+document.addEventListener('click', e => {
+  const s = e.target.closest('[data-star]');
+  if (!s || !s.dataset.star) return;
+  e.preventDefault(); e.stopPropagation();
+  toggleStar(s.dataset.star);
+}, true);
+const emptyMineHTML = s => `<button type="button" class="set" disabled title="Star a card (☆) in Learn, Flashcards or Cards to add it here">
+        <span class="nm">${esc(s.name)}</span>
+        <span class="meta"><span>Star cards (☆) to add them here</span></span>
+      </button>`;
+function fillMine() {
+  MINE.cards = [...stars].map(id => G[id]).filter(Boolean);
+  MINE.removed = SETS[0].removed.filter(q => q.sites.some(s => stars.has(s.g)));
+  MINE.plan = SETS[0].plan.filter(q => q.opts[0].some(g => stars.has(g)));
+}
+function refreshMine() {
+  fillMine();
+  if (active === MINE && !MINE.cards.length) return selectSet('all');
+  if (active === MINE) { makeOrder(); rmDeal(); plDeal(); }  // the next round uses the new list
+  renderSets();
+}
+fillMine();
 const saved = store.get('pg.settings') || {};
-const settings = Object.assign({ level: 'easy', dir: 'all', qtype: 'mixed', ptype: 'mixed', shuffle: true, cols: 'set' }, saved);
+const settings = Object.assign({ level: 'easy', dir: 'all', qtype: 'mixed', ptype: 'mixed', shuffle: true, cols: 'set', ask: 'all' }, saved);
 const hard = () => settings.level === 'hard';
 if (!settings.allDir) { settings.dir = 'all'; settings.allDir = true; }  // "All" is the new default
 // "All" takes the question types in turn
@@ -583,10 +637,11 @@ const loadLevels = () => levels;
 const saveSettings = () => store.set('pg.settings', settings);
 function saveLevels() { store.set('pg.levels', levels); renderSets(); }
 function saveRound() { store.set('pg.round.' + active.id, roundNo); }
-function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active.cards.slice(); }
+let passSeen = new Set();  // cards asked in this pass, when Ask is All cards
+function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active.cards.slice(); passSeen = new Set(); }
 
 function selectSet(id) {
-  active = SETS.find(s => s.id === id) || SETS[0];
+  active = SETS.find(s => s.id === id && s.cards.length) || SETS[0];
   store.set('pg.pick', active.id);
   levels = loadLevels(active.id);
   roundNo = store.get('pg.round.' + active.id) || 1;
@@ -609,6 +664,7 @@ function renderSets() {
   let html = '', group = '';
   for (const s of SETS) {
     if (s.group !== group) { group = s.group; html += `<p class="group-h">${esc(group)}</p>`; }
+    if (s.mine && !s.cards.length) { html += emptyMineHTML(s); continue; }
     let n, m, left, right;
     if (view === 'removed' || view === 'plan') {
       const items = view === 'removed' ? rmPool(s) : plPool(s), rec = record(view, s);
@@ -634,9 +690,14 @@ $('#sets').addEventListener('click', e => {
 
 /* ---------- learn ---------- */
 function startRound() {
-  const pending = order.filter(c => lvl(c.id) < 3);
+  let pending = order.filter(c => lvl(c.id) < 3);
+  if (settings.ask === 'all') {  // every card once per pass, mastered ones too
+    pending = order.filter(c => !passSeen.has(c.id));
+    if (!pending.length) { makeOrder(); pending = order; }
+  }
   if (!pending.length) { phase = 'done'; round = null; renderLearn(); return; }
   const pick = pending.slice(0, ROUND_SIZE);
+  for (const c of pick) passSeen.add(c.id);
   round = { queue: settings.shuffle ? shuffle(pick) : pick, i: 0, results: [] };
   buildQuestion(round.queue[0]);
 }
@@ -646,7 +707,7 @@ function setConds() {
   return own.length >= 6 ? own : DATA.conds;
 }
 const fullName = g => nameKey(g.full) !== nameKey(g.name);
-const learnPool = () => [...new Set([...active.pool, ...active.cards.map(c => c.id)])].map(id => G[id]);
+const learnPool = () => active.mine ? SETS[0].cards : [...new Set([...active.pool, ...active.cards.map(c => c.id)])].map(id => G[id]);  // My cards borrows wrong answers from every group
 // ways to remove a group: its standard entries first; on Hard also every chart column that removes it
 function removalEntries(g) {
   const out = g.std.slice();
@@ -746,7 +807,7 @@ function progressHTML() {
 function questionHTML() {
   const c = cur.card, r = cur.result, dir = cur.dir;
   const shown = r ? r.before : lvl(c.id);
-  const top = `<div class="qtop"><p class="eyebrow">${dir === 'which' ? 'Which group comes off?' : 'Protects: ' + esc(c.what)}</p><span class="pill" data-l="${shown}">${LEVEL_NAMES[shown]}</span></div>`;
+  const top = `<div class="qtop"><p class="eyebrow">${dir === 'which' ? 'Which group comes off?' : 'Protects: ' + esc(c.what)}</p><span class="qtop-r">${starHTML(c.id)}<span class="pill" data-l="${shown}">${LEVEL_NAMES[shown]}</span></span></div>`;
   let head;
   if (dir === 'removedby') {
     head = `<div class="qhead">${top}<h2 class="term">${esc(c.name)}${fullName(c) ? ` <small>${esc(c.full)}</small>` : ''}</h2>
@@ -847,7 +908,7 @@ $('#learn-box').addEventListener('submit', e => { e.preventDefault(); submitWrit
 // rounds of DECK_SIZE; questions not yet answered right come first
 function deal(items, rec) {
   const fresh = shuffle(items.filter(i => rec[i.id] !== 1)), done = shuffle(items.filter(i => rec[i.id] === 1));
-  return [...fresh, ...done].slice(0, DECK_SIZE);
+  return (settings.ask === 'new' ? fresh : [...fresh, ...done]).slice(0, DECK_SIZE);  // Not mastered: only questions not yet answered right
 }
 const streakPill = st => st.streak >= 2 ? `<span class="pill" data-l="3">${st.streak} in a row</span>` : '';
 const hardPill = q => q.hard ? '<span class="pill hard" title="A selectivity question: Hard only">Selectivity</span>' : '';
@@ -868,7 +929,7 @@ function retryDeck(st, build, deal) {
   st.deck = shuffle(missed); st.i = 0; st.results = []; st.retry = true;
   build();
 }
-const emptyHTML = what => `<div class="panel"><p class="help">This set has no ${what} questions on ${hard() ? 'Hard' : 'Easy'}.${hard() ? '' : ' Try Hard.'}</p></div>`;
+const emptyHTML = what => `<div class="panel"><p class="help">${settings.ask === 'new' ? `You have answered every ${what} question in this set right. Set Ask to All cards to go through them again.` : `This set has no ${what} questions on ${hard() ? 'Hard' : 'Easy'}.${hard() ? '' : ' Try Hard.'}`}</p></div>`;
 
 /* ---------- Removed? ---------- */
 const rmPool = s => s.removed.filter(q => hard() || !q.hard);
@@ -1116,7 +1177,7 @@ const HELP = {
   cards: 'Every group in this set. Click one to open it as a flashcard.',
   chart: 'What each set of conditions does to each group. Click a cell for the reason. Cells marked "?" depend on the substrate or the exact conditions, so the quiz never asks them.'
 };
-const OPT_VALUE = { level: v => v, dir: v => v, answers: v => v, shuffle: v => v === 'true', cols: v => v };
+const OPT_VALUE = { level: v => v, dir: v => v, answers: v => v, shuffle: v => v === 'true', cols: v => v, ask: v => v };
 const optKey = k => k === 'answers' ? (view === 'plan' ? 'ptype' : 'qtype') : k;
 function syncOptions() {
   for (const g of document.querySelectorAll('.optbar [data-opt]'))
@@ -1144,6 +1205,7 @@ document.querySelector('.optbar').addEventListener('click', e => {
   if (key === 'ptype' && pl.cur && !pl.cur.checked) plBuild();
   if (key === 'shuffle') makeOrder();
   if (key === 'cols') renderChart();
+  if (key === 'ask') { makeOrder(); startRound(); fcInit(); renderFC(false); rmDeal(); plDeal(); }
 });
 const resetBtn = $('#reset-progress');
 const RESET_LABEL = 'Reset progress for this set';
@@ -1161,10 +1223,19 @@ resetBtn.addEventListener('click', () => {
 
 /* ---------- flashcards ---------- */
 const fc = { order: [], i: 0, flipped: false, shuffled: false };
-function fcInit() { fc.order = fc.shuffled ? shuffle(active.cards) : active.cards.slice(); fc.i = 0; fc.flipped = false; }
+function fcInit() {
+  const base = settings.ask === 'new' ? active.cards.filter(c => lvl(c.id) < 3) : active.cards;
+  fc.order = fc.shuffled ? shuffle(base) : base.slice(); fc.i = 0; fc.flipped = false;
+}
 function renderFC(anim) {
   const c = fc.order[fc.i], el = $('#fc-card');
-  if (!c) return;
+  const sb = $('#fc-star'); if (sb) { sb.dataset.star = c ? c.id : ''; sb.disabled = !c; if (c) paintStar(sb); }
+  if (!c) {
+    el.classList.remove('flipped');
+    el.innerHTML = '<span class="hint">' + (settings.ask === 'new' && active.cards.length ? 'Every card in this set is mastered. Set Ask to All cards to see them again.' : 'This set has no cards yet.') + '</span>';
+    $('#fc-count').textContent = '0 / 0';
+    return;
+  }
   el.classList.toggle('flipped', fc.flipped);
   if (fc.flipped) {
     el.innerHTML = `<span class="eyebrow">Protects: ${esc(c.what)}</span><span class="big">${esc(c.name)}</span>${fullName(c) ? `<span class="hint">${esc(c.full)}</span>` : ''}
@@ -1178,8 +1249,8 @@ function renderFC(anim) {
   if (anim) { el.classList.remove('anim'); void el.offsetWidth; el.classList.add('anim'); }
   $('#fc-count').textContent = `${fc.i + 1} / ${fc.order.length}`;
 }
-const fcFlip = () => { fc.flipped = !fc.flipped; renderFC(true); };
-const fcMove = d => { fc.i = (fc.i + d + fc.order.length) % fc.order.length; fc.flipped = false; renderFC(false); };
+const fcFlip = () => { if (!fc.order.length) return; fc.flipped = !fc.flipped; renderFC(true); };
+const fcMove = d => { if (!fc.order.length) return; fc.i = (fc.i + d + fc.order.length) % fc.order.length; fc.flipped = false; renderFC(false); };
 $('#fc-card').addEventListener('click', e => { if (!e.target.closest('a')) fcFlip(); });
 $('#fc-prev').addEventListener('click', () => fcMove(-1));
 $('#fc-next').addEventListener('click', () => fcMove(1));
@@ -1190,8 +1261,12 @@ $('#fc-shuffle').addEventListener('click', e => {
   fcInit(); renderFC(false);
 });
 function openCard(id) {
-  const k = fc.order.findIndex(c => c.id === id);
-  if (k < 0) return;
+  let k = fc.order.findIndex(c => c.id === id);
+  if (k < 0) {  // left out by Ask: Not mastered, but asked for by name
+    const c = active.cards.find(c => c.id === id);
+    if (!c) return;
+    fc.order.splice(fc.i, 0, c); k = fc.i;
+  }
   fc.i = k; fc.flipped = true;
   show('flashcards');
 }
@@ -1200,7 +1275,7 @@ function openCard(id) {
 function renderCards() {
   const s = active;
   $('#cards-head').innerHTML = `<h2 class="sec">${esc(s.name)}</h2><p class="help">${esc(s.desc)}</p>`;
-  $('#tiles').innerHTML = s.cards.map(c => `<button type="button" class="tile" data-card="${esc(c.id)}" title="Open as a flashcard">
+  $('#tiles').innerHTML = s.cards.map(c => `<button type="button" class="tile" data-card="${esc(c.id)}" title="Open as a flashcard">${starHTML(c.id, 'span')}
       <span class="thumb">${groupSVG(c.id, .85, 92, 230)}</span>
       <span class="tname"><span>${esc(c.name)}</span><i class="dot l${lvl(c.id)}" title="${LEVEL_NAMES[lvl(c.id)]}"></i></span>
       <span class="tdoes">Removed by ${c.std.map(e => esc(stdLabel(e))).join(' · ')}</span>
