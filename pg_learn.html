@@ -362,7 +362,7 @@ table.chart td button[aria-pressed="true"] { outline: 2px solid var(--accent); o
         <div class="seg" role="group" aria-label="Difficulty" data-opt="level"><button type="button" data-val="easy" title="Clear-cut cases only">Easy</button><button type="button" data-val="hard" title="Adds selectivity: TES before TBS, PMB before Bn, primary before secondary">Hard</button></div>
       </div>
       <div class="field" data-for="learn">Question
-        <div class="seg" role="group" aria-label="Question" data-opt="dir"><button type="button" data-val="removedby" title="Given a group, how do you remove it?">Removed by</button><button type="button" data-val="which" title="Given conditions, which group comes off?">Which group</button><button type="button" data-val="name" title="Name the group from its structure">Name it</button></div>
+        <div class="seg" role="group" aria-label="Question" data-opt="dir"><button type="button" data-val="all" title="Removed by, which group and name questions in turn">All</button><button type="button" data-val="removedby" title="Given a group, how do you remove it?">Removed by</button><button type="button" data-val="which" title="Given conditions, which group comes off?">Which group</button><button type="button" data-val="name" title="Name the group from its structure">Name it</button></div>
       </div>
       <div class="field" data-for="learn plan" data-needs="answers">Answers
         <div class="seg" role="group" aria-label="Answers" data-opt="answers"><button type="button" data-val="mixed" title="Multiple choice until familiar, then your own answer">Mixed</button><button type="button" data-val="mc">Choices</button><button type="button" data-val="own" id="own-btn">Typed</button></div>
@@ -558,14 +558,30 @@ SETS.unshift({ id: 'all', group: '', name: 'All protecting groups', desc: 'Every
   cards: uniq(SETS.flatMap(s => s.cards)), pool: uniq(SETS.flatMap(s => s.pool)), conds: uniq(SETS.flatMap(s => s.conds)),
   removed: SETS.flatMap(s => s.removed), plan: SETS.flatMap(s => s.plan) });
 const saved = store.get('pg.settings') || {};
-const settings = Object.assign({ level: 'easy', dir: 'removedby', qtype: 'mixed', ptype: 'mixed', shuffle: true, cols: 'set' }, saved);
+const settings = Object.assign({ level: 'easy', dir: 'all', qtype: 'mixed', ptype: 'mixed', shuffle: true, cols: 'set' }, saved);
 const hard = () => settings.level === 'hard';
-let active = null, levels = {}, roundNo = 1;
+if (!settings.allDir) { settings.dir = 'all'; settings.allDir = true; }  // "All" is the new default
+// "All" takes the question types in turn
+const DIRS = ['removedby', 'which', 'name'];
+let dirTurn = Math.floor(Math.random() * DIRS.length);
+const pickDir = () => settings.dir === 'all' ? DIRS[dirTurn++ % DIRS.length] : settings.dir;
+// One mastery record per card, shared by every set: the whole pool and its sets move together.
+// It starts from the per-set records kept before, taking each card's best level.
+function loadAllLevels() {
+  let all = store.get('pg.levels');
+  if (!all) {
+    all = {};
+    for (const s of SETS) for (const [k, v] of Object.entries(store.get('pg.levels' + '.' + s.id) || {})) all[k] = Math.max(all[k] || 0, v);
+    store.set('pg.levels', all);
+  }
+  return all;
+}
+let active = null, levels = loadAllLevels(), roundNo = 1;
 let order = [], round = null, cur = null, phase = 'question', view = 'learn';
 const lvl = id => levels[id] || 0;
-const loadLevels = id => store.get('pg.levels.' + id) || {};
+const loadLevels = () => levels;
 const saveSettings = () => store.set('pg.settings', settings);
-function saveLevels() { store.set('pg.levels.' + active.id, levels); renderSets(); }
+function saveLevels() { store.set('pg.levels', levels); renderSets(); }
 function saveRound() { store.set('pg.round.' + active.id, roundNo); }
 function makeOrder() { order = settings.shuffle ? shuffle(active.cards) : active.cards.slice(); }
 
@@ -579,7 +595,16 @@ function selectSet(id) {
   renderSets(); renderCards(); renderChart(); renderFC(false);
 }
 
-const record = (kind, s) => store.get(`pg.${kind}.${s.id}`) || {};
+// Removed? and Plan answers are kept by question id for all sets at once, like the mastery levels
+const RECORDS = {};
+function record(kind) {
+  if (!RECORDS[kind]) {
+    let all = store.get('pg.' + kind);
+    if (!all) { all = {}; for (const s of SETS) Object.assign(all, store.get(`pg.${kind}.${s.id}`) || {}); store.set('pg.' + kind, all); }
+    RECORDS[kind] = all;
+  }
+  return RECORDS[kind];
+}
 function renderSets() {
   let html = '', group = '';
   for (const s of SETS) {
@@ -628,8 +653,7 @@ function removalEntries(g) {
   if (hard()) for (const c of DATA.conds) if (removesAny(g.id, c.id, true) && !out.some(e => e.c === c.id)) out.push({ c: c.id });
   return out;
 }
-function buildQuestion(card) {
-  const dir = settings.dir;
+function buildQuestion(card, dir = pickDir()) {
   let type = 'mc';
   if (dir !== 'which') {
     if (settings.qtype === 'own') type = 'written';
@@ -658,13 +682,14 @@ function buildQuestion(card) {
       const ranked = [...(hard() ? same.filter(g => parts(g.id, cond).includes('s')) : []), ...same, ...shuffle(others)];
       const wrong = [...new Set(ranked)].slice(0, 3);
       options = shuffle([card, ...wrong]);
-    } else type = 'skip';
+    } else if (settings.dir === 'all') return buildQuestion(card, 'removedby');  // no condition removes it alone
+    else type = 'skip';
   } else if (dir === 'name' && type === 'mc') {
     const others = learnPool().filter(g => g.id !== card.id && g.name !== card.name);
     const same = shuffle(others.filter(g => g.cls.some(k => card.cls.includes(k))));
     options = shuffle([card, ...[...new Set([...same, ...shuffle(others)])].slice(0, 3)]);
   }
-  cur = { card, type, options, cond, answered: false, result: null };
+  cur = { card, dir, type, options, cond, answered: false, result: null };
   phase = 'question';
   if (type === 'skip') { cur.answered = true; return advance(); }
   renderLearn();
@@ -682,7 +707,7 @@ function resolve(ok, info) {
 function choose(i) {
   if (!cur || cur.answered || cur.type !== 'mc' || i >= cur.options.length) return;
   const o = cur.options[i];
-  const ok = settings.dir === 'removedby' ? !!o.ok : o === cur.card;
+  const ok = cur.dir === 'removedby' ? !!o.ok : o === cur.card;
   resolve(ok, { chosen: i });
 }
 function submitWritten(dontKnow) {
@@ -690,7 +715,7 @@ function submitWritten(dontKnow) {
   const input = $('#answer-input'), val = input ? input.value : '';
   if (dontKnow) return resolve(false, { dontKnow: true });
   if (!val.trim()) { if (input) input.focus(); return; }
-  if (settings.dir === 'removedby') {
+  if (cur.dir === 'removedby') {
     const g = gradeRemoval(val, cur.card, hard());
     return resolve(g.ok, { given: val.trim(), cond: g.cond });
   }
@@ -719,7 +744,7 @@ function progressHTML() {
   return `<div class="bar" role="img" aria-label="${counts[3]} of ${active.cards.length} mastered">${seg}</div><div class="legend">${legend}</div>`;
 }
 function questionHTML() {
-  const c = cur.card, r = cur.result, dir = settings.dir;
+  const c = cur.card, r = cur.result, dir = cur.dir;
   const shown = r ? r.before : lvl(c.id);
   const top = `<div class="qtop"><p class="eyebrow">${dir === 'which' ? 'Which group comes off?' : 'Protects: ' + esc(c.what)}</p><span class="pill" data-l="${shown}">${LEVEL_NAMES[shown]}</span></div>`;
   let head;
@@ -755,7 +780,7 @@ function questionHTML() {
   return `<div class="panel">${head}${body}${cur.answered ? learnFeedbackHTML() : ''}</div>`;
 }
 function learnFeedbackHTML() {
-  const r = cur.result, c = r.card, dir = settings.dir;
+  const r = cur.result, c = r.card, dir = cur.dir;
   const verdict = r.ok ? (r.overridden ? 'Counted as correct' : r.close ? 'Close enough' : 'Correct') : r.dontKnow ? 'Here is the answer' : 'Not quite';
   let lines = '';
   if (dir === 'name' && (!r.ok || r.close)) lines += `<p class="fbline">It is <strong>${esc(c.name)}</strong> (${esc(c.full)}).${r.given && !r.ok ? ` You answered ${esc(r.given)}.` : ''}</p>`;
@@ -814,7 +839,7 @@ $('#learn-box').addEventListener('click', e => {
   else if (t.id === 'dont-know') submitWritten(true);
   else if (t.id === 'override') override();
   else if (t.id === 'next-round') { roundNo++; saveRound(); startRound(); }
-  else if (t.id === 'study-again') { levels = {}; saveLevels(); roundNo = 1; saveRound(); makeOrder(); startRound(); }
+  else if (t.id === 'study-again') { for (const c of active.cards) delete levels[c.id]; saveLevels(); roundNo = 1; saveRound(); makeOrder(); startRound(); }
 });
 $('#learn-box').addEventListener('submit', e => { e.preventDefault(); submitWritten(false); });
 
@@ -868,7 +893,7 @@ function rmCheck(showMe) {
   c.showMe = showMe; c.checked = true;
   rm.results.push({ q: c.q, ok: c.ok });
   rm.streak = c.ok ? rm.streak + 1 : 0;
-  const rec = record('removed', active); rec[c.q.id] = c.ok ? 1 : 0; store.set('pg.removed.' + active.id, rec);
+  const rec = record('removed', active); rec[c.q.id] = c.ok ? 1 : 0; store.set('pg.removed', rec);
   renderRemoved(); renderSets();
   const b = $('#rm-next'); if (b) b.focus({ preventScroll: true });
 }
@@ -983,7 +1008,7 @@ function plFinish(assign, chosen, showMe) {
   c.ok = !showMe && c.result.ok; c.checked = true;
   pl.results.push({ q: c.q, ok: c.ok });
   pl.streak = c.ok ? pl.streak + 1 : 0;
-  const rec = record('plan', active); rec[c.q.id] = c.ok ? 1 : 0; store.set('pg.plan.' + active.id, rec);
+  const rec = record('plan', active); rec[c.q.id] = c.ok ? 1 : 0; store.set('pg.plan', rec);
   renderPlan(); renderSets();
   const b = $('#pl-next'); if (b) b.focus({ preventScroll: true });
 }
@@ -1129,9 +1154,9 @@ resetBtn.addEventListener('click', () => {
     return;
   }
   delete resetBtn.dataset.armed; resetBtn.textContent = RESET_LABEL;
-  if (view === 'removed') { store.set('pg.removed.' + active.id, {}); rm.streak = 0; rmDeal(); renderSets(); }
-  else if (view === 'plan') { store.set('pg.plan.' + active.id, {}); pl.streak = 0; plDeal(); renderSets(); }
-  else { levels = {}; saveLevels(); roundNo = 1; saveRound(); makeOrder(); startRound(); renderCards(); }
+  if (view === 'removed') { const rec = record('removed'); for (const q of active.removed) delete rec[q.id]; store.set('pg.removed', rec); rm.streak = 0; rmDeal(); renderSets(); }
+  else if (view === 'plan') { const rec = record('plan'); for (const q of active.plan) delete rec[q.id]; store.set('pg.plan', rec); pl.streak = 0; plDeal(); renderSets(); }
+  else { for (const c of active.cards) delete levels[c.id]; saveLevels(); roundNo = 1; saveRound(); makeOrder(); startRound(); renderCards(); }
 });
 
 /* ---------- flashcards ---------- */
